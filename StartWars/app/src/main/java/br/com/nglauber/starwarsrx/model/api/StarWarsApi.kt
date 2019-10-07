@@ -28,61 +28,62 @@ class StarWarsApi {
         val gson = GsonBuilder().setLenient().create()
 
         val retrofit = Retrofit.Builder()
-            .baseUrl("http://swapi.co/api/")
-            .addCallAdapterFactory(RxJavaCallAdapterFactory.create())
-            .addConverterFactory(GsonConverterFactory.create(gson))
-            .client(httpClient.build())
-            .build()
+                .baseUrl("http://swapi.co/api/")
+                .addCallAdapterFactory(RxJavaCallAdapterFactory.create())
+                .addConverterFactory(GsonConverterFactory.create(gson))
+                .client(httpClient.build())
+                .build()
         service = retrofit.create<StarWarsApiDef>(StarWarsApiDef::class.java)
     }
 
     fun loadMovies(): Observable<Movie> {
         return service.listMovies()
-            .flatMap { filmResult -> Observable.from(filmResult.results) }
-            .flatMap { film ->
-                Observable.just(
-                    Movie(
-                        film.title,
-                        film.episodeId,
-                        ArrayList<Character>()
+                .flatMap { filmResult -> Observable.from(filmResult.results) }
+                .flatMap { film ->
+                    Observable.just(
+                            Movie(
+                                    film.title,
+                                    film.episodeId,
+                                    ArrayList<Character>()
+                            )
                     )
-                )
-            }
+                }
     }
 
     fun loadMoviesFull(): Observable<Movie> {
         return service.listMovies()
-            .flatMap { filmeResult -> Observable.from(filmeResult.results) }
-            .flatMap { film ->
-                Observable.zip(
-                    Observable.just(Movie(film.title, film.episodeId, ArrayList<Character>())),
-                    Observable.from(film.personUrls)
-                        .flatMap { personUrl ->
-                            Observable.concat(
-                                getCache(personUrl),
-                                 service.loadPerson((Uri.parse(personUrl).lastPathSegment))
-                            ).first()
-                        }
-                        .flatMap { person ->
-                            Observable.just(
-                                Character(
-                                    person.name,
-                                    person.gender
-                                )
-                            )
-                        }.toList(), { movie, characters ->
-                        movie.characters.addAll(characters)
-                        movie
-                    }
-                )
-            }
+                .flatMap { filmResults -> Observable.from(filmResults.results) }
+                .flatMap { film ->
+                    val movieObj = Movie(film.title, film.episodeId, ArrayList<Character>())
+                    Observable.zip(
+                            Observable.just(movieObj),
+                            Observable.from(film.personUrls)
+                                    .flatMap { personUrl ->
+                                        Observable.concat(
+                                                getCache(personUrl),
+                                            Uri.parse(personUrl).lastPathSegment?.let {
+                                                service.loadPerson(it)
+                                                    .doOnNext { person ->
+                                                        peopleCache.put(personUrl, person)
+                                                    }
+                                            }
+                                        ).first()
+                                    }
+                                    .map { person ->
+                                        Character(person!!.name, person.gender)
+                                    }.toList(),
+                            { movie, characters ->
+                                movie.characters.addAll(characters)
+                                movie
+                            })
+                }
     }
 
     private fun getCache(personUrl: String): Observable<Person> {
         return Observable.from(peopleCache.keys)
-            .filter { key ->
-                key == personUrl
-            }.flatMap { key -> Observable.just(peopleCache[personUrl]) }
+                .filter { key ->
+                    key == personUrl
+                }.flatMap { key -> Observable.just(peopleCache[personUrl]) }
     }
 
 
